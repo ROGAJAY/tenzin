@@ -14,16 +14,17 @@
         .handwriting-font {
             font-family: 'Dancing Script', cursive;
         }
-        /* --- Slideshow Styles --- */
-        #bg-slideshow {
+        /* --- Background Style --- */
+        #bg-image-container {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             z-index: -2; /* Behind all content */
+            overflow: hidden; /* This is the key fix to contain the blurred image */
         }
-        #bg-slideshow::after { /* Dark overlay for text readability */
+        #bg-image-container::after { /* Dark overlay for text readability */
             content: '';
             position: absolute;
             top: 0;
@@ -33,24 +34,18 @@
             background-color: rgba(0, 0, 0, 0.3);
             z-index: 0;
         }
-        #bg-slideshow img {
+        #bg-image-container img {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             object-fit: cover; /* This makes the image cover the background properly */
-            opacity: 0;
-            transition: opacity 1.5s ease-in-out; /* Smooth fade transition */
             z-index: -1;
-            /* --- New Blur Effect --- */
             filter: blur(5px);
             transform: scale(1.1); /* Scale up to avoid blurred edges */
         }
-        #bg-slideshow img.active {
-            opacity: 1; /* Make the active image visible */
-        }
-        /* --- End Slideshow Styles --- */
+        /* --- End Background Style --- */
         .card-bg {
             background: rgba(0, 0, 0, 0.25); /* Darker card to pop against images */
             backdrop-filter: blur(15px);
@@ -79,13 +74,16 @@
             background-color: rgba(255, 255, 255, 0.4);
             transform: translateY(-2px);
         }
+        .btn-style:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body class="text-white min-h-screen flex items-center justify-center p-4">
-    <!-- Background Slideshow Container -->
-    <div id="bg-slideshow">
-        <img src="https://placehold.co/1920x1080/444/fff?text=Loading+Image..." alt="Background Image 1" class="active">
-        <img src="https://placehold.co/1920x1080/555/fff?text=Loading+Image..." alt="Background Image 2">
+    <!-- Background Image Container -->
+    <div id="bg-image-container">
+        <img id="bgImage" src="https://placehold.co/1920x1080/444/fff?text=Loading+Image..." alt="Background Image">
     </div>
 
     <div class="w-full max-w-lg mx-auto text-center">
@@ -99,17 +97,19 @@
             </div>
 
             <!-- Loading Indicator -->
-            <div id="loader" class="mx-auto my-8">
+            <div id="loader" class="mx-auto my-8 hidden">
                 <div class="loader"></div>
             </div>
 
             <!-- Error Message Display -->
             <div id="errorMessage" class="hidden mt-4 text-white font-semibold bg-red-400 bg-opacity-50 p-3 rounded-lg"></div>
-
-            <!-- Generate New Compliment Button -->
-            <button id="newComplimentBtn" class="btn-style text-white font-semibold text-lg rounded-lg px-6 py-3 hidden">
-                Another one, please!
-            </button>
+            
+            <!-- Buttons Container -->
+            <div id="buttonContainer" class="hidden flex justify-center">
+                <button id="newComplimentBtn" class="btn-style text-white font-semibold text-lg rounded-lg px-6 py-3">
+                    Another one, please!
+                </button>
+            </div>
         </div>
         <p class="mt-6 handwriting-font text-2xl text-white opacity-80">Counting down the days...</p>
     </div>
@@ -121,130 +121,68 @@
             const resultContainer = document.getElementById('result');
             const resultText = document.getElementById('resultText');
             const errorMessage = document.getElementById('errorMessage');
+            const buttonContainer = document.getElementById('buttonContainer');
             const newComplimentBtn = document.getElementById('newComplimentBtn');
+            const bgImage = document.getElementById('bgImage');
 
-            // --- Expanded list of topics reflecting the full relationship ---
-            const complimentTopics = [
-                "her smile that brightens my day from miles away", "the sound of her voice, which is my favorite song",
-                "her beautiful face, which I can't wait to see in person", "her overall beauty, inside and out",
-                "how much I love her, more than all the distance between us", "how incredibly important she is to me, my everything",
-                "the way she cares for me, even from so far away", "how she always listens to everything on my mind",
-                "the immense respect I have for her", "how I feel when she gets angry and says we'll never talk again",
-                "the cute way she irritates me, which I secretly love", "how I love that I can always convince her, even when she's mad",
-                "imagining the moment we finally meet"
-            ];
-
-            // --- Your Supabase Image URLs ---
-            const imageUrls = [
-                'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//ChatGPT%20Image%20Jul%2017,%202025,%2007_40_46%20PM.png',
-                'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//ChatGPT%20Image%20Jul%209,%202025,%2008_01_38%20PM.png',
-                'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//ChatGPT%20Image%20Jul%209,%202025,%2008_19_13%20PM.png',
-                'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//ChatGPT%20Image%20Jul%209,%202025,%2008_25_39%20PM.png',
-                'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//ChatGPT%20Image%20Jul%209,%202025,%2009_10_31%20PM.png',
-                'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//ChatGPT%20Image%20Jul%209,%202025,%2009_36_51%20PM.png',
-                'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//IMG_20250709_192029_729.jpg'
-            ];
-
-            const bgImages = document.querySelectorAll('#bg-slideshow img');
-            let currentImageIndex = 0;
-
-            /** --- New: Shuffles an array in place (Fisher-Yates algorithm) --- */
-            function shuffleArray(array) {
-                for (let i = array.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [array[i], array[j]] = [array[j], array[i]];
-                }
-            }
-
-            function startSlideshow() {
-                if (imageUrls.length > 0) {
-                    shuffleArray(imageUrls); // Randomize the image order
-                    
-                    if (imageUrls.length > 1) {
-                        // Preload the first two images of the shuffled array
-                        bgImages[0].src = imageUrls[0];
-                        bgImages[1].src = imageUrls[1];
-
-                        setInterval(() => {
-                            const nextImageIndex = (currentImageIndex + 1) % imageUrls.length;
-                            
-                            const currentImgEl = bgImages[currentImageIndex % 2];
-                            const nextImgEl = bgImages[(currentImageIndex + 1) % 2];
-                            
-                            // Set the src for the *next* image to be faded in
-                            nextImgEl.src = imageUrls[nextImageIndex];
-                            
-                            // Crossfade
-                            currentImgEl.classList.remove('active');
-                            nextImgEl.classList.add('active');
-                            
-                            currentImageIndex = nextImageIndex;
-                        }, 7000); // Change image every 7 seconds
-                    } else {
-                        // If only one image, just show it
-                        bgImages[0].src = imageUrls[0];
-                    }
-                }
-            }
+            // --- Your Single Supabase Image URL ---
+            const imageUrl = 'https://zxoyariupduounmooltw.supabase.co/storage/v1/object/public/photos//ChatGPT%20Image%20Jul%209,%202025,%2009_36_51%20PM.png';
             
-            /** Fetches a new compliment from the AI. */
-            const generateCompliment = async () => {
+            // Set the background image
+            bgImage.src = imageUrl;
+            
+            const setButtonsState = (enabled) => {
+                newComplimentBtn.disabled = !enabled;
+            };
+
+            const callGeminiAPI = async (prompt) => {
                 loader.classList.remove('hidden');
                 resultContainer.classList.add('opacity-0');
-                newComplimentBtn.classList.add('hidden');
+                buttonContainer.classList.add('hidden');
                 hideError();
+                setButtonsState(false);
 
                 try {
-                    const randomTopic = complimentTopics[Math.floor(Math.random() * complimentTopics.length)];
-                    const prompt = `I'm in a long-distance relationship with my girlfriend. Her name is Tenzin Sonam. We haven't met in person yet, but we are going to meet very soon.
-
-    Write a short, heartfelt, and natural-sounding message from me to her about this topic: "${randomTopic}".
-    The message must be short — no more than 3–4 lines max — and compliments should feel genuine and not overly grand or exaggerated.
-    The tone should vary: sometimes be romantic, but other times it can be simply sweet, caring, or appreciative. Do not use generic pet names like 'my love' or 'darling'.
-
-    My core feelings to convey are:
-    - I love her deeply and she is the most important person to me.
-    - I respect her immensely and I love her quirks, even how she irritates me.
-    - I love that we can resolve things after she gets angry.
-    - IMPORTANT: When the topic is about her being angry and saying things like "don't talk to me" or "we'll never meet," express my feelings in a very warm, loving, and reassuring way. It should communicate that her words make me sad and I overthink, but it comes from a place of love and fear of losing her, not blame. The tone must be incredibly gentle.`;
-                    
                     const apiKey = "AIzaSyCZlp0ofpeBnR1W2kLbr1Az5Msr5POUmSM";
-                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+                    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
                     const payload = {
                         contents: [{ role: "user", parts: [{ text: prompt }] }],
                         generationConfig: { temperature: 0.9 }
                     };
-
                     const response = await fetch(apiUrl, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(payload)
                     });
-
                     if (!response.ok) {
-                        const errorBody = await response.text();
-                        throw new Error(`API request failed with status ${response.status}: ${errorBody}`);
+                        throw new Error(`API request failed: ${response.status}`);
                     }
-                    
                     const result = await response.json();
-
                     if (result.candidates && result.candidates[0].content && result.candidates[0].content.parts[0]) {
-                        const generatedText = result.candidates[0].content.parts[0].text.trim();
-                        displayResult(generatedText);
+                        displayResult(result.candidates[0].content.parts[0].text.trim());
                     } else {
-                        throw new Error("The AI returned an unexpected response structure.");
+                        throw new Error("Unexpected response structure from AI.");
                     }
-
                 } catch (error) {
-                    console.error("Error generating compliment:", error);
+                    console.error("Error with Gemini API:", error);
                     displayError("My words are failing me, but my love for you never does.");
                 } finally {
                     loader.classList.add('hidden');
-                    newComplimentBtn.classList.remove('hidden');
+                    buttonContainer.classList.remove('hidden');
+                    setButtonsState(true);
                 }
             };
+            
+            const generateCompliment = () => {
+                const prompt = `I'm in a long-distance relationship with my girlfriend. Her name is Tenzin Sonam. We haven't met in person yet, but we are going to meet very soon.
+    Write a short, heartfelt, and natural-sounding message from me to her. It could be about her personality, her smile, our connection, or just a sweet thought about her.
+    The message must be very short — no more than 2 lines max. Use simple, everyday words.
+    The tone should vary: sometimes romantic, sometimes sweet or appreciative. Do not use generic pet names like 'my love'.
+    IMPORTANT: If the message touches upon a time she was angry, it should be warm and reassuring, expressing sadness from a place of love, not blame.
+    CRITICAL: The response must ONLY contain the message itself. Do not add any extra text or formatting.`;
+                callGeminiAPI(prompt);
+            };
 
-            // --- Helper Functions to Update UI ---
             function displayResult(text) {
                 resultText.textContent = text;
                 resultContainer.classList.remove('opacity-0');
@@ -259,11 +197,9 @@
                 errorMessage.classList.add('hidden');
             }
 
-            // --- Event Listeners ---
             newComplimentBtn.addEventListener('click', generateCompliment);
             
-            // --- Initialize Page ---
-            startSlideshow();
+            // Generate the first compliment automatically on page load
             generateCompliment();
         };
     </script>
